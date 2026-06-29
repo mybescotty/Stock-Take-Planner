@@ -320,11 +320,23 @@
 </header>
 
 <div class="container">
-  <div id="uploadSection" class="upload-zone" onclick="document.getElementById('csvFile').click()">
-    <h2>Drop Excel File Here or Click to Upload</h2>
-    <p>Supports .xlsx, .xls and .csv files</p>
-    <p style="font-size:0.8rem;margin-top:8px">Expected columns: OPCO, OPCODesc, Store, DepotDesc, Part, PartDesc, PartClass, Bin, Qty, UOI, AvgPrice, StockValue, Date of Last Stock Take, StockAcctCode, ACCTNAME, DEPOT, MATERIALGROUPDESC</p>
-    <input type="file" id="csvFile" accept=".xlsx,.xls,.csv,.txt">
+  <div id="uploadSection" class="upload-zone">
+    <h2>Stocktake Schedule Planner</h2>
+    <div style="margin:20px 0;display:flex;align-items:center;justify-content:center;gap:12px">
+      <label style="font-size:0.95rem;color:var(--text)">Stock count valid for:</label>
+      <select id="uploadCyclePeriod" style="background:var(--card);color:var(--text);border:1px solid var(--border);padding:10px 14px;border-radius:6px;font-size:0.95rem;cursor:pointer" onclick="event.stopPropagation()">
+        <option value="3">3 months</option>
+        <option value="6" selected>6 months</option>
+        <option value="9">9 months</option>
+        <option value="12">12 months</option>
+      </select>
+    </div>
+    <div style="border:2px dashed var(--accent);border-radius:10px;padding:35px;cursor:pointer;transition:all 0.3s" onclick="document.getElementById('csvFile').click()" onmouseover="this.style.borderColor='#2196f3'" onmouseout="this.style.borderColor=''">
+      <h3 style="margin-bottom:8px">Drop Excel File Here or Click to Upload</h3>
+      <p>Supports .xlsx, .xls and .csv files</p>
+    </div>
+    <p style="font-size:0.75rem;margin-top:12px;color:var(--muted)">Expected columns: OPCO, OPCODesc, Store, DepotDesc, Part, PartDesc, PartClass, Bin, Qty, UOI, AvgPrice, StockValue, Date of Last Stock Take, StockAcctCode, ACCTNAME, DEPOT, MATERIALGROUPDESC</p>
+    <input type="file" id="csvFile" accept=".xlsx,.xls,.csv,.txt" style="display:none">
   </div>
 
   <div id="mainContent" class="hidden">
@@ -381,7 +393,7 @@
     <div class="tab-content" id="tab-schedule">
       <div class="cycle-info">
         <strong>Scheduling Rules:</strong> Stock takes are scheduled on <strong>Tuesdays</strong>. 
-        Each item is due for a count no later than <strong>1 week before</strong> its annual due date. 
+        Each item is due for a count no later than <strong>1 week before</strong> its due date.
         Items are grouped by <strong>Bin location</strong> for efficient time-in-motion. 
         Maximum <strong>150 items per week</strong>. <strong>Thursdays</strong> are used for catch-up or overspill on busy weeks.
         Outstanding items are prioritised and worked into the schedule first.
@@ -389,12 +401,7 @@
       <div class="controls">
         <label>Depot:</label>
         <select id="scheduleDepot"></select>
-        <label>Stock Take Cycle:</label>
-        <select id="cyclePeriod">
-          <option value="12">Annual (12 months)</option>
-          <option value="6">Semi-Annual (6 months)</option>
-          <option value="3">Quarterly (3 months)</option>
-        </select>
+        <span style="color:var(--muted);font-size:0.85rem">Cycle: <strong id="cyclePeriodDisplay"></strong></span>
         <label>Start From:</label>
         <input type="date" id="scheduleStart">
         <label>Weeks to Plan:</label>
@@ -578,7 +585,7 @@ function addDays(d, n) {
 function processData() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const cyclePeriod = parseInt(document.getElementById('cyclePeriod')?.value || '12');
+  const cyclePeriod = parseInt(document.getElementById('uploadCyclePeriod').value);
 
   parsedItems = rawData.map(item => {
     let dueDate = null;
@@ -632,6 +639,8 @@ function setScheduleDefaults() {
   const startInput = document.getElementById('scheduleStart');
   const nextTue = getNextTuesday(new Date());
   startInput.value = nextTue.toISOString().split('T')[0];
+  const months = document.getElementById('uploadCyclePeriod').value;
+  document.getElementById('cyclePeriodDisplay').textContent = months + ' months';
 }
 
 function renderOverview() {
@@ -777,7 +786,7 @@ document.querySelectorAll('.tab').forEach(tab => {
 
 function generateSchedule() {
   const depotName = document.getElementById('scheduleDepot').value;
-  const cyclePeriod = parseInt(document.getElementById('cyclePeriod').value);
+  const cyclePeriod = parseInt(document.getElementById('uploadCyclePeriod').value);
   const startDate = new Date(document.getElementById('scheduleStart').value);
   const weeksCount = parseInt(document.getElementById('weeksToGenerate').value);
 
@@ -1092,9 +1101,6 @@ function renderDepotView() {
 
 document.getElementById('depotViewSelect').addEventListener('change', renderDepotView);
 
-document.getElementById('cyclePeriod').addEventListener('change', () => {
-  processData();
-});
 </script>
 </body>
 </html>
