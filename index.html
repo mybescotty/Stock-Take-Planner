@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Stocktake Schedule Planner</title>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<script src="jspdf.umd.min.js"></script>
+<script src="jspdf.plugin.autotable.min.js"></script>
 <style>
   :root {
     --bg: #1a1a2e;
@@ -397,6 +399,7 @@
         Items are grouped by <strong>Bin location</strong> for efficient time-in-motion. 
         Maximum <strong>150 items per week</strong>. <strong>Thursdays</strong> are used for catch-up or overspill on busy weeks.
         Outstanding items are prioritised and worked into the schedule first.
+        Light weeks automatically pull forward future stock takes to even out the workload.
       </div>
       <div class="controls">
         <label>Depot:</label>
@@ -412,7 +415,7 @@
         </select>
         <button class="btn" onclick="generateSchedule()">Generate Schedule</button>
         <button class="btn secondary" onclick="exportSchedule()">Export CSV</button>
-        <button class="btn green-btn" onclick="window.print()">Print</button>
+        <button class="btn green-btn" onclick="exportPDF()">Download PDF</button>
       </div>
       <div id="scheduleOutput"></div>
     </div>
@@ -813,85 +816,135 @@ function generateSchedule() {
 
   const outstanding = depotItems.filter(i => i.status === 'overdue')
     .sort((a, b) => b.daysOverdue - a.daysOverdue);
-
   const dueSoon = depotItems.filter(i => i.status === 'due-soon')
-    .sort((a, b) => {
-      if (a.dueDate < b.dueDate) return -1;
-      if (a.dueDate > b.dueDate) return 1;
-      return 0;
-    });
-
+    .sort((a, b) => a.dueDate - b.dueDate);
   const endDate = addDays(startDate, weeksCount * 7);
   const upcoming = depotItems.filter(i => i.status === 'ok' && i.dueDate <= addDays(endDate, 7))
-    .sort((a, b) => {
-      if (a.dueDate < b.dueDate) return -1;
-      if (a.dueDate > b.dueDate) return 1;
-      return 0;
-    });
+    .sort((a, b) => a.dueDate - b.dueDate);
 
   let allToSchedule = [...outstanding, ...dueSoon, ...upcoming];
   const scheduled = new Set();
   const weeks = [];
+  const MAX_WEEK = 150;
 
   let currentTuesday = getNextTuesday(addDays(startDate, -1));
   if (currentTuesday < startDate) currentTuesday = getNextTuesday(currentTuesday);
 
+  // Pass 1: assign items to weeks by their deadline
+  const weekSlots = [];
   for (let w = 0; w < weeksCount; w++) {
     const tuesday = new Date(currentTuesday);
     tuesday.setDate(tuesday.getDate() + w * 7);
-    const thursday = getThursdayOfWeek(tuesday);
-    const weekEnd = addDays(tuesday, 6);
+    weekSlots.push({ wIndex: w, tuesday, items: [] });
+  }
 
-    const deadlineForWeek = addDays(tuesday, 13);
-
-    let weekItems = [];
-    const remaining = allToSchedule.filter(i => !scheduled.has(i.part + '|' + i.bin));
-
-    remaining.forEach(item => {
-      if (scheduled.has(item.part + '|' + item.bin)) return;
-
-      const scheduleBefore = item.dueDate ? addDays(item.dueDate, -7) : new Date(0);
-
-      if (item.status === 'overdue' || item.status === 'due-soon' || scheduleBefore <= deadlineForWeek) {
-        weekItems.push(item);
+  allToSchedule.forEach(item => {
+    const key = item.part + '|' + item.bin;
+    if (scheduled.has(key)) return;
+    const scheduleBefore = item.dueDate ? addDays(item.dueDate, -7) : new Date(0);
+    let placed = false;
+    for (let s = 0; s < weekSlots.length; s++) {
+      const slot = weekSlots[s];
+      const deadline = addDays(slot.tuesday, 13);
+      if (item.status === 'overdue' || item.status === 'due-soon' || scheduleBefore <= deadline) {
+        if (slot.items.length < MAX_WEEK) {
+          slot.items.push(item);
+          scheduled.add(key);
+          placed = true;
+          break;
+        }
       }
-    });
+    }
+    if (!placed) {
+      for (let s = 0; s < weekSlots.length; s++) {
+        if (weekSlots[s].items.length < MAX_WEEK) {
+          weekSlots[s].items.push(item);
+          scheduled.add(key);
+          break;
+        }
+      }
+    }
+  });
 
-    if (weekItems.length === 0) continue;
+  // Pass 2: load-balance — pull forward from heavy future weeks into light ones
+  const PULL_FORWARD_THRESHOLD = 100;
+  for (let s = 0; s < weekSlots.length; s++) {
+    const slot = weekSlots[s];
+    if (slot.items.length >= PULL_FORWARD_THRESHOLD) continue;
+    const space = MAX_WEEK - slot.items.length;
+    if (space <= 0) continue;
+
+    let pulled = 0;
+    for (let f = s + 1; f < weekSlots.length && pulled < space; f++) {
+      const futureSlot = weekSlots[f];
+      if (futureSlot.items.length <= PULL_FORWARD_THRESHOLD) continue;
+
+      const sortedByBin = [...futureSlot.items].sort((a, b) => a.bin < b.bin ? -1 : a.bin > b.bin ? 1 : 0);
+      const toMove = [];
+      const binsInCurrent = new Set(slot.items.map(i => i.bin || 'NO BIN'));
+
+      sortedByBin.forEach(item => {
+        if (pulled + toMove.length >= space) return;
+        const bin = item.bin || 'NO BIN';
+        if (binsInCurrent.has(bin) || toMove.some(m => (m.bin || 'NO BIN') === bin)) {
+          toMove.push(item);
+        }
+      });
+
+      if (toMove.length === 0) {
+        sortedByBin.forEach(item => {
+          if (pulled + toMove.length >= space) return;
+          if (futureSlot.items.length - toMove.length <= PULL_FORWARD_THRESHOLD) return;
+          toMove.push(item);
+        });
+      }
+
+      toMove.forEach(item => {
+        const idx = futureSlot.items.indexOf(item);
+        if (idx !== -1) {
+          futureSlot.items.splice(idx, 1);
+          slot.items.push(item);
+          pulled++;
+        }
+      });
+    }
+  }
+
+  // Pass 3: build week cards with bin grouping and Tuesday/Thursday split
+  const activeWeeks = weekSlots.filter(s => s.items.length > 0);
+  const totalWeeks = activeWeeks.length;
+
+  activeWeeks.forEach((slot, countIdx) => {
+    const tuesday = slot.tuesday;
+    const thursday = getThursdayOfWeek(tuesday);
+    let weekItems = slot.items;
 
     weekItems.sort((a, b) => {
       if (a.status === 'overdue' && b.status !== 'overdue') return -1;
       if (b.status === 'overdue' && a.status !== 'overdue') return 1;
-      if (a.bin < b.bin) return -1;
-      if (a.bin > b.bin) return 1;
-      return 0;
+      return a.bin < b.bin ? -1 : a.bin > b.bin ? 1 : 0;
     });
 
-    const MAX_WEEK = 150;
-    const MAX_TUESDAY = 150;
-    const capped = weekItems.slice(0, MAX_WEEK);
-
     const binGroups = {};
-    capped.forEach(item => {
+    weekItems.forEach(item => {
       const bin = item.bin || 'NO BIN';
       if (!binGroups[bin]) binGroups[bin] = [];
       binGroups[bin].push(item);
     });
 
     const sortedBins = Object.keys(binGroups).sort();
-
     let tuesdayItems = [];
     let thursdayItems = [];
     let tuesdayCount = 0;
 
     sortedBins.forEach(bin => {
       const group = binGroups[bin];
-      if (tuesdayCount + group.length <= MAX_TUESDAY && tuesdayCount < 130) {
+      if (tuesdayCount + group.length <= 130) {
         tuesdayItems.push({ bin, items: group });
         tuesdayCount += group.length;
-      } else if (tuesdayCount < MAX_TUESDAY) {
-        const spaceLeft = MAX_TUESDAY - tuesdayCount;
-        if (spaceLeft > 0 && group.length <= spaceLeft) {
+      } else if (tuesdayCount < MAX_WEEK) {
+        const spaceLeft = MAX_WEEK - tuesdayCount;
+        if (group.length <= spaceLeft) {
           tuesdayItems.push({ bin, items: group });
           tuesdayCount += group.length;
         } else {
@@ -902,13 +955,16 @@ function generateSchedule() {
       }
     });
 
-    capped.forEach(i => scheduled.add(i.part + '|' + i.bin));
-
     const tuesdayTotal = tuesdayItems.reduce((s, g) => s + g.items.length, 0);
     const thursdayTotal = thursdayItems.reduce((s, g) => s + g.items.length, 0);
 
+    const countName = depotName + ' - ' + formatDate(tuesday) + ' - ' + (countIdx + 1) + ' of ' + totalWeeks;
+
     weeks.push({
-      weekNum: w + 1,
+      weekNum: slot.wIndex + 1,
+      countIndex: countIdx + 1,
+      totalCounts: totalWeeks,
+      countName,
       tuesday,
       thursday,
       tuesdayItems,
@@ -917,47 +973,46 @@ function generateSchedule() {
       thursdayCount: thursdayTotal,
       totalCount: tuesdayTotal + thursdayTotal
     });
-  }
+  });
 
   renderScheduleOutput(depotName, weeks, outstanding.length, dueSoon.length);
 }
 
 function renderScheduleOutput(depotName, weeks, overdueCount, dueSoonCount) {
   const totalScheduled = weeks.reduce((s, w) => s + w.totalCount, 0);
-  const tuesdayOnlyWeeks = weeks.filter(w => w.thursdayCount === 0).length;
   const thursdayWeeks = weeks.filter(w => w.thursdayCount > 0).length;
+  const avgPerWeek = weeks.length > 0 ? Math.round(totalScheduled / weeks.length) : 0;
 
   let html = '<div class="stats-row">' +
     statCard('Depot', depotName, 'blue') +
     statCard('Total Scheduled', totalScheduled, 'green') +
     statCard('Overdue (Prioritised)', overdueCount, 'red') +
     statCard('Weeks Planned', weeks.length, '') +
-    statCard('Thursday Overspill Weeks', thursdayWeeks, 'amber') +
+    statCard('Avg per Week', avgPerWeek, 'blue') +
+    statCard('Thursday Weeks', thursdayWeeks, 'amber') +
   '</div>';
 
   weeks.forEach(week => {
     html += '<div class="week-card">' +
       '<div class="week-header">' +
-        '<div class="week-title">Week ' + week.weekNum + ' — w/c ' + formatDate(addDays(week.tuesday, -1)) + '</div>' +
+        '<div>' +
+          '<div class="week-title">Week ' + week.weekNum + ' — w/c ' + formatDate(addDays(week.tuesday, -1)) + '</div>' +
+          '<div style="font-size:0.8rem;color:var(--accent);margin-top:2px;font-weight:600">' + week.countName + '</div>' +
+        '</div>' +
         '<div class="week-count">' + week.totalCount + ' / 150 items</div>' +
       '</div>';
 
     html += '<div class="day-section">' +
       '<div class="day-label">Tuesday ' + formatDate(week.tuesday) +
         ' <span class="count-pill">' + week.tuesdayCount + ' items</span></div>';
-
-    week.tuesdayItems.forEach(group => {
-      html += renderBinGroup(group);
-    });
+    week.tuesdayItems.forEach(group => { html += renderBinGroup(group); });
     html += '</div>';
 
     if (week.thursdayItems.length > 0) {
       html += '<div class="day-section">' +
         '<div class="day-label thursday">Thursday ' + formatDate(week.thursday) +
           ' (Catch-up) <span class="count-pill">' + week.thursdayCount + ' items</span></div>';
-      week.thursdayItems.forEach(group => {
-        html += renderBinGroup(group);
-      });
+      week.thursdayItems.forEach(group => { html += renderBinGroup(group); });
       html += '</div>';
     }
 
@@ -998,12 +1053,13 @@ function exportSchedule() {
   if (!window._lastSchedule) return alert('Generate a schedule first');
   const { depotName, weeks } = window._lastSchedule;
 
-  let csv = 'Week,Day,Date,Bin,Part,Description,Status,Due Date,Material Group\n';
+  let csv = 'Count Reference,Week,Day,Date,Bin,Part,Description,Status,Due Date,Material Group\n';
   weeks.forEach(week => {
     const addRows = (items, day, date) => {
       items.forEach(group => {
         group.items.forEach(item => {
           csv += [
+            '"' + week.countName + '"',
             week.weekNum,
             day,
             formatDate(date),
@@ -1026,6 +1082,168 @@ function exportSchedule() {
   a.href = URL.createObjectURL(blob);
   a.download = depotName.replace(/\s+/g, '_') + '_stocktake_schedule.csv';
   a.click();
+}
+
+function exportPDF() {
+  if (!window._lastSchedule) return alert('Generate a schedule first');
+  const { depotName, weeks } = window._lastSchedule;
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const margin = 12;
+  const cyclePeriod = document.getElementById('uploadCyclePeriod').value;
+  const totalScheduled = weeks.reduce((s, w) => s + w.totalCount, 0);
+
+  function addHeader(title) {
+    doc.setFillColor(26, 26, 46);
+    doc.rect(0, 0, pageW, 22, 'F');
+    doc.setFillColor(233, 69, 96);
+    doc.rect(0, 22, pageW, 1.5, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(14);
+    doc.setFont(undefined, 'bold');
+    doc.text('Stocktake Schedule — ' + depotName, margin, 14);
+    doc.setFontSize(8);
+    doc.setFont(undefined, 'normal');
+    doc.setTextColor(180, 180, 180);
+    doc.text(title, pageW - margin, 14, { align: 'right' });
+    doc.text('Generated: ' + formatDate(new Date()) + '  |  Cycle: ' + cyclePeriod + ' months  |  Total items: ' + totalScheduled, pageW - margin, 19, { align: 'right' });
+  }
+
+  function addFooter(pageNum) {
+    doc.setFontSize(7);
+    doc.setTextColor(150, 150, 150);
+    doc.text('Page ' + pageNum, pageW / 2, pageH - 5, { align: 'center' });
+    doc.text('Stocktake Schedule Planner', margin, pageH - 5);
+  }
+
+  // Title page
+  addHeader('Schedule Summary');
+  let y = 32;
+  doc.setTextColor(60, 60, 60);
+  doc.setFontSize(10);
+  doc.setFont(undefined, 'bold');
+  doc.text('Schedule Overview', margin, y);
+  y += 8;
+
+  const summaryData = [
+    ['Depot', depotName],
+    ['Stock Count Cycle', cyclePeriod + ' months'],
+    ['Total Items Scheduled', String(totalScheduled)],
+    ['Weeks Planned', String(weeks.length)],
+    ['Avg Items per Week', String(weeks.length > 0 ? Math.round(totalScheduled / weeks.length) : 0)],
+    ['Thursday Overspill Weeks', String(weeks.filter(w => w.thursdayCount > 0).length)]
+  ];
+
+  doc.autoTable({
+    startY: y,
+    head: [['', '']],
+    body: summaryData,
+    theme: 'grid',
+    margin: { left: margin, right: pageW / 2 + 10 },
+    styles: { fontSize: 9, cellPadding: 3 },
+    headStyles: { fillColor: [26, 26, 46], fontSize: 0, cellPadding: 0, minCellHeight: 0 },
+    columnStyles: { 0: { fontStyle: 'bold', cellWidth: 55 } }
+  });
+
+  // Count reference list
+  const refY = doc.lastAutoTable.finalY + 10;
+  doc.setFontSize(10);
+  doc.setFont(undefined, 'bold');
+  doc.setTextColor(60, 60, 60);
+  doc.text('Count References', margin, refY);
+
+  const refData = weeks.map(w => [
+    w.countName,
+    'Week ' + w.weekNum,
+    formatDate(w.tuesday),
+    String(w.tuesdayCount),
+    w.thursdayCount > 0 ? String(w.thursdayCount) : '-',
+    String(w.totalCount)
+  ]);
+
+  doc.autoTable({
+    startY: refY + 4,
+    head: [['Count Reference', 'Week', 'Tuesday', 'Tue Items', 'Thu Items', 'Total']],
+    body: refData,
+    theme: 'striped',
+    margin: { left: margin, right: margin },
+    styles: { fontSize: 8, cellPadding: 2.5 },
+    headStyles: { fillColor: [233, 69, 96], textColor: 255, fontStyle: 'bold' }
+  });
+
+  addFooter(1);
+
+  // Per-week detail pages
+  weeks.forEach((week, wIdx) => {
+    doc.addPage();
+    addHeader(week.countName);
+    let y = 30;
+
+    doc.setFontSize(12);
+    doc.setFont(undefined, 'bold');
+    doc.setTextColor(233, 69, 96);
+    doc.text(week.countName, margin, y);
+    y += 6;
+    doc.setFontSize(9);
+    doc.setTextColor(80, 80, 80);
+    doc.setFont(undefined, 'normal');
+    doc.text('Week ' + week.weekNum + '  |  ' + week.totalCount + ' items  |  Tuesday: ' + week.tuesdayCount + '  Thursday: ' + week.thursdayCount, margin, y);
+    y += 8;
+
+    const buildRows = (groups, day) => {
+      const rows = [];
+      groups.forEach(group => {
+        group.items.forEach(item => {
+          rows.push([
+            day,
+            group.bin,
+            item.part,
+            truncate(item.partDesc, 35),
+            item.status === 'overdue' ? 'OVERDUE' : item.status === 'due-soon' ? 'DUE SOON' : 'SCHEDULED',
+            formatDate(item.dueDate),
+            item.materialGroup
+          ]);
+        });
+      });
+      return rows;
+    };
+
+    const rows = [
+      ...buildRows(week.tuesdayItems, 'Tuesday ' + formatDate(week.tuesday)),
+      ...buildRows(week.thursdayItems, 'Thursday ' + formatDate(week.thursday))
+    ];
+
+    doc.autoTable({
+      startY: y,
+      head: [['Day', 'Bin', 'Part', 'Description', 'Status', 'Due Date', 'Material Group']],
+      body: rows,
+      theme: 'striped',
+      margin: { left: margin, right: margin },
+      styles: { fontSize: 7.5, cellPadding: 2 },
+      headStyles: { fillColor: [22, 33, 62], textColor: 255, fontStyle: 'bold', fontSize: 8 },
+      columnStyles: {
+        0: { cellWidth: 32 },
+        1: { cellWidth: 22 },
+        2: { cellWidth: 22 },
+        4: { cellWidth: 22 },
+        5: { cellWidth: 22 }
+      },
+      didParseCell: function(data) {
+        if (data.section === 'body' && data.column.index === 4) {
+          const val = data.cell.raw;
+          if (val === 'OVERDUE') data.cell.styles.textColor = [244, 67, 54];
+          else if (val === 'DUE SOON') data.cell.styles.textColor = [255, 152, 0];
+          else data.cell.styles.textColor = [76, 175, 80];
+        }
+      }
+    });
+
+    addFooter(wIdx + 2);
+  });
+
+  doc.save(depotName.replace(/\s+/g, '_') + '_stocktake_schedule.pdf');
 }
 
 function renderDepotView() {
