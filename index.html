@@ -912,24 +912,32 @@ function generateSchedule() {
 
   // Pass 3: build week cards with bin grouping and Tuesday/Thursday split
   const activeWeeks = weekSlots.filter(s => s.items.length > 0);
-  const totalWeeks = activeWeeks.length;
 
-  activeWeeks.forEach((slot, countIdx) => {
-    const tuesday = slot.tuesday;
-    const thursday = getThursdayOfWeek(tuesday);
-    let weekItems = slot.items;
-
-    weekItems.sort((a, b) => {
-      if (a.status === 'overdue' && b.status !== 'overdue') return -1;
-      if (b.status === 'overdue' && a.status !== 'overdue') return 1;
-      return a.bin < b.bin ? -1 : a.bin > b.bin ? 1 : 0;
-    });
-
+  // First pass: count total bin groups across all weeks for the "X of N" reference
+  let totalBinGroups = 0;
+  const weekBinData = activeWeeks.map(slot => {
     const binGroups = {};
-    weekItems.forEach(item => {
+    slot.items.forEach(item => {
       const bin = item.bin || 'NO BIN';
       if (!binGroups[bin]) binGroups[bin] = [];
       binGroups[bin].push(item);
+    });
+    const binCount = Object.keys(binGroups).length;
+    totalBinGroups += binCount;
+    return { slot, binGroups };
+  });
+
+  // Second pass: assign sequential count numbers per bin group
+  let runningCount = 0;
+
+  weekBinData.forEach(({ slot, binGroups }) => {
+    const tuesday = slot.tuesday;
+    const thursday = getThursdayOfWeek(tuesday);
+
+    slot.items.sort((a, b) => {
+      if (a.status === 'overdue' && b.status !== 'overdue') return -1;
+      if (b.status === 'overdue' && a.status !== 'overdue') return 1;
+      return a.bin < b.bin ? -1 : a.bin > b.bin ? 1 : 0;
     });
 
     const sortedBins = Object.keys(binGroups).sort();
@@ -939,39 +947,39 @@ function generateSchedule() {
 
     sortedBins.forEach(bin => {
       const group = binGroups[bin];
+      runningCount++;
+      const countRef = depotName + ' - ' + formatDate(tuesday) + ' - ' + runningCount + ' of ' + totalBinGroups;
+      const binEntry = { bin, items: group, countNum: runningCount, countRef };
+
       if (tuesdayCount + group.length <= 130) {
-        tuesdayItems.push({ bin, items: group });
+        tuesdayItems.push(binEntry);
         tuesdayCount += group.length;
       } else if (tuesdayCount < MAX_WEEK) {
         const spaceLeft = MAX_WEEK - tuesdayCount;
         if (group.length <= spaceLeft) {
-          tuesdayItems.push({ bin, items: group });
+          tuesdayItems.push(binEntry);
           tuesdayCount += group.length;
         } else {
-          thursdayItems.push({ bin, items: group });
+          thursdayItems.push(binEntry);
         }
       } else {
-        thursdayItems.push({ bin, items: group });
+        thursdayItems.push(binEntry);
       }
     });
 
     const tuesdayTotal = tuesdayItems.reduce((s, g) => s + g.items.length, 0);
     const thursdayTotal = thursdayItems.reduce((s, g) => s + g.items.length, 0);
 
-    const countName = depotName + ' - ' + formatDate(tuesday) + ' - ' + (countIdx + 1) + ' of ' + totalWeeks;
-
     weeks.push({
       weekNum: slot.wIndex + 1,
-      countIndex: countIdx + 1,
-      totalCounts: totalWeeks,
-      countName,
       tuesday,
       thursday,
       tuesdayItems,
       thursdayItems,
       tuesdayCount: tuesdayTotal,
       thursdayCount: thursdayTotal,
-      totalCount: tuesdayTotal + thursdayTotal
+      totalCount: tuesdayTotal + thursdayTotal,
+      totalBinGroups
     });
   });
 
@@ -982,22 +990,28 @@ function renderScheduleOutput(depotName, weeks, overdueCount, dueSoonCount) {
   const totalScheduled = weeks.reduce((s, w) => s + w.totalCount, 0);
   const thursdayWeeks = weeks.filter(w => w.thursdayCount > 0).length;
   const avgPerWeek = weeks.length > 0 ? Math.round(totalScheduled / weeks.length) : 0;
+  const totalCounts = weeks.length > 0 ? weeks[0].totalBinGroups : 0;
 
   let html = '<div class="stats-row">' +
     statCard('Depot', depotName, 'blue') +
     statCard('Total Scheduled', totalScheduled, 'green') +
     statCard('Overdue (Prioritised)', overdueCount, 'red') +
     statCard('Weeks Planned', weeks.length, '') +
-    statCard('Avg per Week', avgPerWeek, 'blue') +
+    statCard('Total Counts', totalCounts, 'blue') +
     statCard('Thursday Weeks', thursdayWeeks, 'amber') +
   '</div>';
 
   weeks.forEach(week => {
+    const weekBinNums = [...week.tuesdayItems, ...week.thursdayItems].map(g => g.countNum);
+    const weekRefRange = weekBinNums.length > 0
+      ? 'Counts ' + Math.min(...weekBinNums) + '-' + Math.max(...weekBinNums) + ' of ' + totalCounts
+      : '';
+
     html += '<div class="week-card">' +
       '<div class="week-header">' +
         '<div>' +
           '<div class="week-title">Week ' + week.weekNum + ' — w/c ' + formatDate(addDays(week.tuesday, -1)) + '</div>' +
-          '<div style="font-size:0.8rem;color:var(--accent);margin-top:2px;font-weight:600">' + week.countName + '</div>' +
+          '<div style="font-size:0.8rem;color:var(--accent);margin-top:2px;font-weight:600">' + weekRefRange + '</div>' +
         '</div>' +
         '<div class="week-count">' + week.totalCount + ' / 150 items</div>' +
       '</div>';
@@ -1025,7 +1039,10 @@ function renderScheduleOutput(depotName, weeks, overdueCount, dueSoonCount) {
 
 function renderBinGroup(group) {
   let html = '<div class="bin-group">' +
-    '<div class="bin-group-header">Bin: ' + group.bin + ' (' + group.items.length + ' items)</div>' +
+    '<div class="bin-group-header" style="display:flex;justify-content:space-between;align-items:center">' +
+      '<span>Bin: ' + group.bin + ' (' + group.items.length + ' items)</span>' +
+      '<span style="color:var(--blue);font-size:0.75rem;font-weight:600">' + group.countRef + '</span>' +
+    '</div>' +
     '<div class="bin-group-items">';
 
   group.items.forEach(item => {
@@ -1059,7 +1076,7 @@ function exportSchedule() {
       items.forEach(group => {
         group.items.forEach(item => {
           csv += [
-            '"' + week.countName + '"',
+            '"' + group.countRef + '"',
             week.weekNum,
             day,
             formatDate(date),
@@ -1147,25 +1164,29 @@ function exportPDF() {
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 55 } }
   });
 
-  // Count reference list
+  // Count reference list — one row per bin group
   const refY = doc.lastAutoTable.finalY + 10;
   doc.setFontSize(10);
   doc.setFont(undefined, 'bold');
   doc.setTextColor(60, 60, 60);
   doc.text('Count References', margin, refY);
 
-  const refData = weeks.map(w => [
-    w.countName,
-    'Week ' + w.weekNum,
-    formatDate(w.tuesday),
-    String(w.tuesdayCount),
-    w.thursdayCount > 0 ? String(w.thursdayCount) : '-',
-    String(w.totalCount)
-  ]);
+  const refData = [];
+  weeks.forEach(w => {
+    [...w.tuesdayItems, ...w.thursdayItems].forEach(g => {
+      refData.push([
+        g.countRef,
+        'Week ' + w.weekNum,
+        formatDate(w.tuesday),
+        g.bin,
+        String(g.items.length)
+      ]);
+    });
+  });
 
   doc.autoTable({
     startY: refY + 4,
-    head: [['Count Reference', 'Week', 'Tuesday', 'Tue Items', 'Thu Items', 'Total']],
+    head: [['Count Reference', 'Week', 'Date', 'Bin', 'Items']],
     body: refData,
     theme: 'striped',
     margin: { left: margin, right: margin },
@@ -1177,26 +1198,30 @@ function exportPDF() {
 
   // Per-week detail pages
   weeks.forEach((week, wIdx) => {
+    const weekBinNums = [...week.tuesdayItems, ...week.thursdayItems].map(g => g.countNum);
+    const weekRefRange = 'Counts ' + Math.min(...weekBinNums) + '-' + Math.max(...weekBinNums) + ' of ' + week.totalBinGroups;
+
     doc.addPage();
-    addHeader(week.countName);
+    addHeader(weekRefRange);
     let y = 30;
 
     doc.setFontSize(12);
     doc.setFont(undefined, 'bold');
     doc.setTextColor(233, 69, 96);
-    doc.text(week.countName, margin, y);
+    doc.text('Week ' + week.weekNum + ' — ' + weekRefRange, margin, y);
     y += 6;
     doc.setFontSize(9);
     doc.setTextColor(80, 80, 80);
     doc.setFont(undefined, 'normal');
-    doc.text('Week ' + week.weekNum + '  |  ' + week.totalCount + ' items  |  Tuesday: ' + week.tuesdayCount + '  Thursday: ' + week.thursdayCount, margin, y);
+    doc.text(formatDate(week.tuesday) + '  |  ' + week.totalCount + ' items  |  Tuesday: ' + week.tuesdayCount + '  Thursday: ' + week.thursdayCount, margin, y);
     y += 8;
 
     const buildRows = (groups, day) => {
       const rows = [];
       groups.forEach(group => {
-        group.items.forEach(item => {
+        group.items.forEach((item, idx) => {
           rows.push([
+            idx === 0 ? group.countRef : '',
             day,
             group.bin,
             item.part,
@@ -1211,27 +1236,28 @@ function exportPDF() {
     };
 
     const rows = [
-      ...buildRows(week.tuesdayItems, 'Tuesday ' + formatDate(week.tuesday)),
-      ...buildRows(week.thursdayItems, 'Thursday ' + formatDate(week.thursday))
+      ...buildRows(week.tuesdayItems, 'Tue ' + formatDate(week.tuesday)),
+      ...buildRows(week.thursdayItems, 'Thu ' + formatDate(week.thursday))
     ];
 
     doc.autoTable({
       startY: y,
-      head: [['Day', 'Bin', 'Part', 'Description', 'Status', 'Due Date', 'Material Group']],
+      head: [['Count Ref', 'Day', 'Bin', 'Part', 'Description', 'Status', 'Due Date', 'Material Group']],
       body: rows,
       theme: 'striped',
       margin: { left: margin, right: margin },
-      styles: { fontSize: 7.5, cellPadding: 2 },
-      headStyles: { fillColor: [22, 33, 62], textColor: 255, fontStyle: 'bold', fontSize: 8 },
+      styles: { fontSize: 7, cellPadding: 2 },
+      headStyles: { fillColor: [22, 33, 62], textColor: 255, fontStyle: 'bold', fontSize: 7.5 },
       columnStyles: {
-        0: { cellWidth: 32 },
-        1: { cellWidth: 22 },
-        2: { cellWidth: 22 },
-        4: { cellWidth: 22 },
-        5: { cellWidth: 22 }
+        0: { cellWidth: 58, fontStyle: 'bold', textColor: [33, 150, 243] },
+        1: { cellWidth: 28 },
+        2: { cellWidth: 20 },
+        3: { cellWidth: 20 },
+        5: { cellWidth: 20 },
+        6: { cellWidth: 20 }
       },
       didParseCell: function(data) {
-        if (data.section === 'body' && data.column.index === 4) {
+        if (data.section === 'body' && data.column.index === 5) {
           const val = data.cell.raw;
           if (val === 'OVERDUE') data.cell.styles.textColor = [244, 67, 54];
           else if (val === 'DUE SOON') data.cell.styles.textColor = [255, 152, 0];
