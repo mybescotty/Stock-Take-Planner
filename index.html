@@ -5,8 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Stocktake Schedule Planner</title>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
-<script src="jspdf.umd.min.js"></script>
-<script src="jspdf.plugin.autotable.min.js"></script>
+<script>if(typeof XLSX==='undefined'){document.write('<scr'+'ipt src="xlsx.full.min.js"><\/scr'+'ipt>')}</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>if(typeof jspdf==='undefined'){document.write('<scr'+'ipt src="jspdf.umd.min.js"><\/scr'+'ipt>')}</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.4/jspdf.plugin.autotable.min.js"></script>
+<script>if(typeof jspdf==='undefined'||!jspdf.jsPDF.API.autoTable){document.write('<scr'+'ipt src="jspdf.plugin.autotable.min.js"><\/scr'+'ipt>')}</script>
 <style>
   :root {
     --bg: #1a1a2e;
