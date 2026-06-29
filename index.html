@@ -1,0 +1,1081 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stocktake Schedule Planner</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --surface: #16213e;
+    --card: #0f3460;
+    --accent: #e94560;
+    --accent2: #533483;
+    --text: #eee;
+    --muted: #999;
+    --green: #4caf50;
+    --amber: #ff9800;
+    --red: #f44336;
+    --blue: #2196f3;
+    --border: #2a2a4a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+  header {
+    background: linear-gradient(135deg, var(--surface), var(--card));
+    padding: 20px 30px;
+    border-bottom: 3px solid var(--accent);
+    display: flex;
+    align-items: center;
+    gap: 20px;
+  }
+  header h1 { font-size: 1.6rem; font-weight: 600; }
+  header .subtitle { color: var(--muted); font-size: 0.9rem; }
+  .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+  .upload-zone {
+    border: 2px dashed var(--accent);
+    border-radius: 12px;
+    padding: 50px;
+    text-align: center;
+    background: var(--surface);
+    cursor: pointer;
+    transition: all 0.3s;
+    margin-bottom: 20px;
+  }
+  .upload-zone:hover { background: var(--card); border-color: var(--blue); }
+  .upload-zone h2 { margin-bottom: 10px; }
+  .upload-zone p { color: var(--muted); }
+  .upload-zone input { display: none; }
+  .tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 20px;
+    background: var(--surface);
+    padding: 4px;
+    border-radius: 10px;
+    flex-wrap: wrap;
+  }
+  .tab {
+    padding: 10px 20px;
+    border-radius: 8px;
+    cursor: pointer;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    font-size: 0.9rem;
+    font-weight: 500;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+  .tab:hover { color: var(--text); background: rgba(255,255,255,0.05); }
+  .tab.active { background: var(--accent); color: #fff; }
+  .tab .badge {
+    display: inline-block;
+    background: rgba(255,255,255,0.2);
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 0.75rem;
+    margin-left: 6px;
+  }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+    margin-bottom: 25px;
+  }
+  .stat-card {
+    background: var(--surface);
+    border-radius: 10px;
+    padding: 18px;
+    border-left: 4px solid var(--accent);
+  }
+  .stat-card .label { color: var(--muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; }
+  .stat-card .value { font-size: 1.8rem; font-weight: 700; margin-top: 5px; }
+  .stat-card.green { border-left-color: var(--green); }
+  .stat-card.amber { border-left-color: var(--amber); }
+  .stat-card.red { border-left-color: var(--red); }
+  .stat-card.blue { border-left-color: var(--blue); }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--surface);
+    border-radius: 10px;
+    overflow: hidden;
+    font-size: 0.85rem;
+  }
+  thead th {
+    background: var(--card);
+    padding: 12px 10px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--muted);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    cursor: pointer;
+    user-select: none;
+  }
+  thead th:hover { color: var(--text); }
+  tbody td {
+    padding: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  tbody tr:hover { background: rgba(255,255,255,0.03); }
+  .status-badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+  .status-overdue { background: rgba(244,67,54,0.2); color: var(--red); }
+  .status-due-soon { background: rgba(255,152,0,0.2); color: var(--amber); }
+  .status-ok { background: rgba(76,175,80,0.2); color: var(--green); }
+  .depot-section {
+    background: var(--surface);
+    border-radius: 10px;
+    margin-bottom: 20px;
+    overflow: hidden;
+  }
+  .depot-header {
+    background: var(--card);
+    padding: 15px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+  }
+  .depot-header h3 { font-size: 1.1rem; }
+  .depot-header .info { color: var(--muted); font-size: 0.85rem; }
+  .depot-body { padding: 15px; }
+  .week-card {
+    background: var(--bg);
+    border-radius: 8px;
+    margin-bottom: 12px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  .week-header {
+    padding: 12px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(255,255,255,0.03);
+    border-bottom: 1px solid var(--border);
+  }
+  .week-header .week-title { font-weight: 600; }
+  .week-header .week-count { color: var(--muted); font-size: 0.85rem; }
+  .day-section { padding: 10px 16px; }
+  .day-label {
+    font-weight: 600;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    color: var(--blue);
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .day-label.thursday { color: var(--amber); }
+  .day-label .count-pill {
+    background: rgba(255,255,255,0.1);
+    padding: 2px 8px;
+    border-radius: 8px;
+    font-size: 0.75rem;
+  }
+  .bin-group {
+    margin: 6px 0 12px 0;
+    padding: 8px 12px;
+    background: rgba(255,255,255,0.02);
+    border-radius: 6px;
+    border-left: 3px solid var(--accent2);
+  }
+  .bin-group-header {
+    font-weight: 600;
+    font-size: 0.8rem;
+    color: var(--accent);
+    margin-bottom: 4px;
+  }
+  .bin-group-items {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 4px;
+    font-size: 0.8rem;
+  }
+  .bin-item {
+    padding: 4px 8px;
+    border-radius: 4px;
+    background: rgba(255,255,255,0.03);
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .bin-item .part-info { color: var(--muted); }
+  .controls {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-bottom: 15px;
+  }
+  .controls select, .controls input {
+    background: var(--card);
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 0.85rem;
+  }
+  .controls label { color: var(--muted); font-size: 0.85rem; }
+  .btn {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 0.85rem;
+    transition: all 0.2s;
+  }
+  .btn:hover { filter: brightness(1.1); transform: translateY(-1px); }
+  .btn.secondary { background: var(--accent2); }
+  .btn.green-btn { background: var(--green); }
+  .progress-bar {
+    height: 6px;
+    background: var(--border);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-top: 6px;
+  }
+  .progress-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.3s;
+  }
+  .filter-row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 15px;
+    align-items: center;
+  }
+  .table-wrapper {
+    overflow-x: auto;
+    border-radius: 10px;
+    max-height: 600px;
+    overflow-y: auto;
+  }
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 15px;
+    margin-bottom: 20px;
+  }
+  .summary-card {
+    background: var(--surface);
+    border-radius: 10px;
+    padding: 18px;
+  }
+  .summary-card h4 { margin-bottom: 10px; color: var(--accent); }
+  .hidden { display: none !important; }
+  @media print {
+    body { background: #fff; color: #000; }
+    .upload-zone, .tabs, .controls, .btn { display: none; }
+    header { background: none; border-bottom: 2px solid #000; }
+    .stat-card, .depot-section, .week-card, table { break-inside: avoid; }
+    .tab-content { display: block !important; }
+    table, .stat-card, .depot-section { background: #fff; border: 1px solid #ccc; }
+    thead th { background: #eee; color: #000; }
+    tbody td { border-color: #ddd; }
+  }
+  .cycle-info {
+    background: var(--surface);
+    border-radius: 10px;
+    padding: 15px 20px;
+    margin-bottom: 15px;
+    font-size: 0.85rem;
+    color: var(--muted);
+    border-left: 4px solid var(--blue);
+  }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Stocktake Schedule Planner</h1>
+    <div class="subtitle">Upload stock data CSV &bull; View outstanding items &bull; Generate weekly schedules per depot</div>
+  </div>
+</header>
+
+<div class="container">
+  <div id="uploadSection" class="upload-zone" onclick="document.getElementById('csvFile').click()">
+    <h2>Drop CSV File Here or Click to Upload</h2>
+    <p>Expected columns: OPCO, OPCODesc, Store, DepotDesc, Part, PartDesc, PartClass, Bin, Qty, UOI, AvgPrice, StockValue, Date of Last Stock Take, StockAcctCode, ACCTNAME, DEPOT, MATERIALGROUPDESC</p>
+    <input type="file" id="csvFile" accept=".csv,.txt">
+  </div>
+
+  <div id="mainContent" class="hidden">
+    <div class="tabs" id="tabBar">
+      <button class="tab active" data-tab="overview">Overview</button>
+      <button class="tab" data-tab="outstanding">Current Outstanding <span class="badge" id="outstandingBadge">0</span></button>
+      <button class="tab" data-tab="schedule">Schedule Generator</button>
+      <button class="tab" data-tab="depotView">Depot View</button>
+    </div>
+
+    <!-- OVERVIEW TAB -->
+    <div class="tab-content active" id="tab-overview">
+      <div class="stats-row" id="overviewStats"></div>
+      <div class="summary-grid" id="depotSummaryGrid"></div>
+    </div>
+
+    <!-- OUTSTANDING TAB -->
+    <div class="tab-content" id="tab-outstanding">
+      <div class="stats-row" id="outstandingStats"></div>
+      <div class="filter-row">
+        <label>Depot:</label>
+        <select id="filterDepot"><option value="">All Depots</option></select>
+        <label>Status:</label>
+        <select id="filterStatus">
+          <option value="">All</option>
+          <option value="overdue">Overdue</option>
+          <option value="due-soon">Due Soon (within 30 days)</option>
+        </select>
+        <label>Search:</label>
+        <input type="text" id="filterSearch" placeholder="Part, Bin, Description...">
+      </div>
+      <div class="table-wrapper">
+        <table id="outstandingTable">
+          <thead>
+            <tr>
+              <th data-sort="depot">Depot</th>
+              <th data-sort="part">Part</th>
+              <th data-sort="desc">Description</th>
+              <th data-sort="bin">Bin</th>
+              <th data-sort="value">Stock Value</th>
+              <th data-sort="lastTake">Last Stock Take</th>
+              <th data-sort="dueDate">Due Date</th>
+              <th data-sort="daysOver">Days Overdue</th>
+              <th data-sort="status">Status</th>
+              <th data-sort="materialGroup">Material Group</th>
+            </tr>
+          </thead>
+          <tbody id="outstandingBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- SCHEDULE TAB -->
+    <div class="tab-content" id="tab-schedule">
+      <div class="cycle-info">
+        <strong>Scheduling Rules:</strong> Stock takes are scheduled on <strong>Tuesdays</strong>. 
+        Each item is due for a count no later than <strong>1 week before</strong> its annual due date. 
+        Items are grouped by <strong>Bin location</strong> for efficient time-in-motion. 
+        Maximum <strong>150 items per week</strong>. <strong>Thursdays</strong> are used for catch-up or overspill on busy weeks.
+        Outstanding items are prioritised and worked into the schedule first.
+      </div>
+      <div class="controls">
+        <label>Depot:</label>
+        <select id="scheduleDepot"></select>
+        <label>Stock Take Cycle:</label>
+        <select id="cyclePeriod">
+          <option value="12">Annual (12 months)</option>
+          <option value="6">Semi-Annual (6 months)</option>
+          <option value="3">Quarterly (3 months)</option>
+        </select>
+        <label>Start From:</label>
+        <input type="date" id="scheduleStart">
+        <label>Weeks to Plan:</label>
+        <select id="weeksToGenerate">
+          <option value="13">13 weeks (Quarter)</option>
+          <option value="26">26 weeks (Half Year)</option>
+          <option value="52">52 weeks (Full Year)</option>
+        </select>
+        <button class="btn" onclick="generateSchedule()">Generate Schedule</button>
+        <button class="btn secondary" onclick="exportSchedule()">Export CSV</button>
+        <button class="btn green-btn" onclick="window.print()">Print</button>
+      </div>
+      <div id="scheduleOutput"></div>
+    </div>
+
+    <!-- DEPOT VIEW TAB -->
+    <div class="tab-content" id="tab-depotView">
+      <div class="controls">
+        <label>Select Depot:</label>
+        <select id="depotViewSelect"></select>
+      </div>
+      <div id="depotViewContent"></div>
+    </div>
+  </div>
+</div>
+<script>
+let rawData = [];
+let parsedItems = [];
+let currentSort = { col: '', dir: 'asc' };
+
+document.getElementById('csvFile').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (file) readCSV(file);
+});
+
+const uploadZone = document.getElementById('uploadSection');
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.style.borderColor = '#2196f3'; });
+uploadZone.addEventListener('dragleave', () => { uploadZone.style.borderColor = ''; });
+uploadZone.addEventListener('drop', e => {
+  e.preventDefault();
+  uploadZone.style.borderColor = '';
+  if (e.dataTransfer.files.length) readCSV(e.dataTransfer.files[0]);
+});
+
+function readCSV(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    const text = e.target.result;
+    parseCSVData(text);
+  };
+  reader.readAsText(file);
+}
+
+function parseCSVData(text) {
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  if (lines.length < 2) return alert('CSV appears empty');
+
+  const headers = parseCSVLine(lines[0]);
+  const colMap = {};
+  const expectedCols = ['OPCO','OPCODesc','Store','DepotDesc','Part','PartDesc',
+    'PartClass','Bin','Qty','UOI','AvgPrice','StockValue',
+    'Date of Last Stock Take','StockAcctCode','ACCTNAME','DEPOT','MATERIALGROUPDESC'];
+
+  headers.forEach((h, i) => {
+    const clean = h.trim().replace(/^["']|["']$/g, '');
+    colMap[clean] = i;
+    expectedCols.forEach(ec => {
+      if (clean.toLowerCase() === ec.toLowerCase()) colMap[ec] = i;
+    });
+  });
+
+  rawData = [];
+  for (let i = 1; i < lines.length; i++) {
+    const vals = parseCSVLine(lines[i]);
+    if (vals.length < 5) continue;
+    const get = col => {
+      const idx = colMap[col];
+      return idx !== undefined ? (vals[idx] || '').trim().replace(/^["']|["']$/g, '') : '';
+    };
+    rawData.push({
+      opco: get('OPCO'),
+      opcoDesc: get('OPCODesc'),
+      store: get('Store'),
+      depot: get('DepotDesc'),
+      part: get('Part'),
+      partDesc: get('PartDesc'),
+      partClass: get('PartClass'),
+      bin: get('Bin'),
+      qty: parseFloat(get('Qty')) || 0,
+      uoi: get('UOI'),
+      avgPrice: parseFloat(get('AvgPrice')) || 0,
+      stockValue: parseFloat(get('StockValue')) || 0,
+      lastStockTake: parseDate(get('Date of Last Stock Take')),
+      lastStockTakeRaw: get('Date of Last Stock Take'),
+      stockAcctCode: get('StockAcctCode'),
+      acctName: get('ACCTNAME'),
+      depotCode: get('DEPOT'),
+      materialGroup: get('MATERIALGROUPDESC')
+    });
+  }
+
+  processData();
+}
+
+function parseCSVLine(line) {
+  const result = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') {
+      if (inQuotes && line[i + 1] === '"') { current += '"'; i++; }
+      else inQuotes = !inQuotes;
+    } else if (c === ',' && !inQuotes) {
+      result.push(current);
+      current = '';
+    } else {
+      current += c;
+    }
+  }
+  result.push(current);
+  return result;
+}
+
+function parseDate(str) {
+  if (!str) return null;
+  str = str.trim().replace(/^["']|["']$/g, '');
+  // Try DD/MM/YYYY
+  let m = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (m) return new Date(parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]));
+  // Try YYYY-MM-DD
+  m = str.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+  if (m) return new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]));
+  const d = new Date(str);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function formatDate(d) {
+  if (!d) return 'N/A';
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+function getNextTuesday(from) {
+  const d = new Date(from);
+  const day = d.getDay();
+  const diff = (2 - day + 7) % 7 || 7;
+  d.setDate(d.getDate() + diff);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function getThursdayOfWeek(tuesday) {
+  const d = new Date(tuesday);
+  d.setDate(d.getDate() + 2);
+  return d;
+}
+
+function addDays(d, n) {
+  const r = new Date(d);
+  r.setDate(r.getDate() + n);
+  return r;
+}
+
+function processData() {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const cyclePeriod = parseInt(document.getElementById('cyclePeriod')?.value || '12');
+
+  parsedItems = rawData.map(item => {
+    let dueDate = null;
+    let daysOverdue = 0;
+    let status = 'ok';
+
+    if (item.lastStockTake) {
+      dueDate = new Date(item.lastStockTake);
+      dueDate.setMonth(dueDate.getMonth() + cyclePeriod);
+
+      const diff = Math.floor((today - dueDate) / (1000 * 60 * 60 * 24));
+      daysOverdue = diff;
+
+      if (diff > 0) status = 'overdue';
+      else if (diff > -30) status = 'due-soon';
+      else status = 'ok';
+    } else {
+      status = 'overdue';
+      daysOverdue = 999;
+      dueDate = new Date(today);
+    }
+
+    return { ...item, dueDate, daysOverdue, status };
+  });
+
+  document.getElementById('uploadSection').classList.add('hidden');
+  document.getElementById('mainContent').classList.remove('hidden');
+
+  populateFilters();
+  renderOverview();
+  renderOutstanding();
+  setScheduleDefaults();
+}
+
+function populateFilters() {
+  const depots = [...new Set(parsedItems.map(i => i.depot))].sort();
+  const depotSelects = ['filterDepot', 'scheduleDepot', 'depotViewSelect'];
+  depotSelects.forEach(id => {
+    const sel = document.getElementById(id);
+    if (!sel) return;
+    const isFilter = id === 'filterDepot';
+    sel.innerHTML = isFilter ? '<option value="">All Depots</option>' : '';
+    depots.forEach(d => {
+      if (!d) return;
+      sel.innerHTML += '<option value="' + d + '">' + d + '</option>';
+    });
+  });
+}
+
+function setScheduleDefaults() {
+  const startInput = document.getElementById('scheduleStart');
+  const nextTue = getNextTuesday(new Date());
+  startInput.value = nextTue.toISOString().split('T')[0];
+}
+
+function renderOverview() {
+  const depots = [...new Set(parsedItems.map(i => i.depot))].sort();
+  const overdue = parsedItems.filter(i => i.status === 'overdue');
+  const dueSoon = parsedItems.filter(i => i.status === 'due-soon');
+  const totalValue = parsedItems.reduce((s, i) => s + i.stockValue, 0);
+
+  document.getElementById('overviewStats').innerHTML =
+    statCard('Total Items', parsedItems.length, 'blue') +
+    statCard('Depots', depots.length, '') +
+    statCard('Overdue', overdue.length, 'red') +
+    statCard('Due Within 30 Days', dueSoon.length, 'amber') +
+    statCard('Total Stock Value', '£' + totalValue.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2}), 'green');
+
+  let grid = '';
+  depots.forEach(depot => {
+    if (!depot) return;
+    const items = parsedItems.filter(i => i.depot === depot);
+    const od = items.filter(i => i.status === 'overdue').length;
+    const ds = items.filter(i => i.status === 'due-soon').length;
+    const ok = items.filter(i => i.status === 'ok').length;
+    const total = items.length;
+    const pctOk = total > 0 ? Math.round((ok / total) * 100) : 0;
+
+    grid += '<div class="summary-card">' +
+      '<h4>' + depot + '</h4>' +
+      '<div style="display:flex;gap:20px;margin-bottom:10px">' +
+        '<span>Total: <strong>' + total + '</strong></span>' +
+        '<span style="color:var(--red)">Overdue: <strong>' + od + '</strong></span>' +
+        '<span style="color:var(--amber)">Due Soon: <strong>' + ds + '</strong></span>' +
+        '<span style="color:var(--green)">OK: <strong>' + ok + '</strong></span>' +
+      '</div>' +
+      '<div class="progress-bar"><div class="progress-fill" style="width:' + pctOk + '%;background:' +
+        (pctOk > 80 ? 'var(--green)' : pctOk > 50 ? 'var(--amber)' : 'var(--red)') + '"></div></div>' +
+      '<div style="font-size:0.75rem;color:var(--muted);margin-top:4px">' + pctOk + '% up to date</div>' +
+    '</div>';
+  });
+  document.getElementById('depotSummaryGrid').innerHTML = grid;
+}
+
+function statCard(label, value, cls) {
+  return '<div class="stat-card ' + cls + '"><div class="label">' + label + '</div><div class="value">' + value + '</div></div>';
+}
+
+function renderOutstanding() {
+  const outstanding = parsedItems.filter(i => i.status === 'overdue' || i.status === 'due-soon');
+  document.getElementById('outstandingBadge').textContent = outstanding.length;
+
+  const overdue = outstanding.filter(i => i.status === 'overdue');
+  const dueSoon = outstanding.filter(i => i.status === 'due-soon');
+  const totalVal = outstanding.reduce((s, i) => s + i.stockValue, 0);
+  const depotCount = new Set(outstanding.map(i => i.depot)).size;
+
+  document.getElementById('outstandingStats').innerHTML =
+    statCard('Outstanding Items', outstanding.length, 'red') +
+    statCard('Overdue', overdue.length, 'red') +
+    statCard('Due Soon', dueSoon.length, 'amber') +
+    statCard('Depots Affected', depotCount, 'blue') +
+    statCard('Value at Risk', '£' + totalVal.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2}), 'amber');
+
+  filterOutstanding();
+}
+
+function filterOutstanding() {
+  const depot = document.getElementById('filterDepot').value;
+  const status = document.getElementById('filterStatus').value;
+  const search = document.getElementById('filterSearch').value.toLowerCase();
+
+  let items = parsedItems.filter(i => i.status === 'overdue' || i.status === 'due-soon');
+  if (depot) items = items.filter(i => i.depot === depot);
+  if (status) items = items.filter(i => i.status === status);
+  if (search) items = items.filter(i =>
+    i.part.toLowerCase().includes(search) ||
+    i.partDesc.toLowerCase().includes(search) ||
+    i.bin.toLowerCase().includes(search) ||
+    i.depot.toLowerCase().includes(search) ||
+    i.materialGroup.toLowerCase().includes(search)
+  );
+
+  if (currentSort.col) {
+    items.sort((a, b) => {
+      let va, vb;
+      switch (currentSort.col) {
+        case 'depot': va = a.depot; vb = b.depot; break;
+        case 'part': va = a.part; vb = b.part; break;
+        case 'desc': va = a.partDesc; vb = b.partDesc; break;
+        case 'bin': va = a.bin; vb = b.bin; break;
+        case 'value': va = a.stockValue; vb = b.stockValue; break;
+        case 'lastTake': va = a.lastStockTake || new Date(0); vb = b.lastStockTake || new Date(0); break;
+        case 'dueDate': va = a.dueDate || new Date(0); vb = b.dueDate || new Date(0); break;
+        case 'daysOver': va = a.daysOverdue; vb = b.daysOverdue; break;
+        case 'status': va = a.status; vb = b.status; break;
+        case 'materialGroup': va = a.materialGroup; vb = b.materialGroup; break;
+        default: va = ''; vb = '';
+      }
+      if (va < vb) return currentSort.dir === 'asc' ? -1 : 1;
+      if (va > vb) return currentSort.dir === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }
+
+  const tbody = document.getElementById('outstandingBody');
+  tbody.innerHTML = items.map(i =>
+    '<tr>' +
+      '<td>' + i.depot + '</td>' +
+      '<td>' + i.part + '</td>' +
+      '<td>' + i.partDesc + '</td>' +
+      '<td>' + i.bin + '</td>' +
+      '<td>£' + i.stockValue.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + '</td>' +
+      '<td>' + formatDate(i.lastStockTake) + '</td>' +
+      '<td>' + formatDate(i.dueDate) + '</td>' +
+      '<td>' + (i.daysOverdue > 0 ? i.daysOverdue + ' days' : Math.abs(i.daysOverdue) + ' days left') + '</td>' +
+      '<td><span class="status-badge status-' + i.status + '">' +
+        (i.status === 'overdue' ? 'OVERDUE' : 'DUE SOON') + '</span></td>' +
+      '<td>' + i.materialGroup + '</td>' +
+    '</tr>'
+  ).join('');
+}
+
+document.getElementById('filterDepot').addEventListener('change', filterOutstanding);
+document.getElementById('filterStatus').addEventListener('change', filterOutstanding);
+document.getElementById('filterSearch').addEventListener('input', filterOutstanding);
+
+document.querySelectorAll('#outstandingTable th[data-sort]').forEach(th => {
+  th.addEventListener('click', () => {
+    const col = th.dataset.sort;
+    if (currentSort.col === col) currentSort.dir = currentSort.dir === 'asc' ? 'desc' : 'asc';
+    else { currentSort.col = col; currentSort.dir = 'asc'; }
+    filterOutstanding();
+  });
+});
+
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+    if (tab.dataset.tab === 'depotView') renderDepotView();
+  });
+});
+
+function generateSchedule() {
+  const depotName = document.getElementById('scheduleDepot').value;
+  const cyclePeriod = parseInt(document.getElementById('cyclePeriod').value);
+  const startDate = new Date(document.getElementById('scheduleStart').value);
+  const weeksCount = parseInt(document.getElementById('weeksToGenerate').value);
+
+  if (!depotName) return alert('Please select a depot');
+  if (isNaN(startDate.getTime())) return alert('Please select a valid start date');
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  let depotItems = parsedItems.filter(i => i.depot === depotName);
+
+  depotItems.forEach(item => {
+    if (item.lastStockTake) {
+      item.dueDate = new Date(item.lastStockTake);
+      item.dueDate.setMonth(item.dueDate.getMonth() + cyclePeriod);
+      item.daysOverdue = Math.floor((today - item.dueDate) / (1000 * 60 * 60 * 24));
+      item.status = item.daysOverdue > 0 ? 'overdue' : (item.daysOverdue > -30 ? 'due-soon' : 'ok');
+    } else {
+      item.dueDate = new Date(today);
+      item.daysOverdue = 999;
+      item.status = 'overdue';
+    }
+  });
+
+  const outstanding = depotItems.filter(i => i.status === 'overdue')
+    .sort((a, b) => b.daysOverdue - a.daysOverdue);
+
+  const dueSoon = depotItems.filter(i => i.status === 'due-soon')
+    .sort((a, b) => {
+      if (a.dueDate < b.dueDate) return -1;
+      if (a.dueDate > b.dueDate) return 1;
+      return 0;
+    });
+
+  const endDate = addDays(startDate, weeksCount * 7);
+  const upcoming = depotItems.filter(i => i.status === 'ok' && i.dueDate <= addDays(endDate, 7))
+    .sort((a, b) => {
+      if (a.dueDate < b.dueDate) return -1;
+      if (a.dueDate > b.dueDate) return 1;
+      return 0;
+    });
+
+  let allToSchedule = [...outstanding, ...dueSoon, ...upcoming];
+  const scheduled = new Set();
+  const weeks = [];
+
+  let currentTuesday = getNextTuesday(addDays(startDate, -1));
+  if (currentTuesday < startDate) currentTuesday = getNextTuesday(currentTuesday);
+
+  for (let w = 0; w < weeksCount; w++) {
+    const tuesday = new Date(currentTuesday);
+    tuesday.setDate(tuesday.getDate() + w * 7);
+    const thursday = getThursdayOfWeek(tuesday);
+    const weekEnd = addDays(tuesday, 6);
+
+    const deadlineForWeek = addDays(tuesday, 13);
+
+    let weekItems = [];
+    const remaining = allToSchedule.filter(i => !scheduled.has(i.part + '|' + i.bin));
+
+    remaining.forEach(item => {
+      if (scheduled.has(item.part + '|' + item.bin)) return;
+
+      const scheduleBefore = item.dueDate ? addDays(item.dueDate, -7) : new Date(0);
+
+      if (item.status === 'overdue' || item.status === 'due-soon' || scheduleBefore <= deadlineForWeek) {
+        weekItems.push(item);
+      }
+    });
+
+    if (weekItems.length === 0) continue;
+
+    weekItems.sort((a, b) => {
+      if (a.status === 'overdue' && b.status !== 'overdue') return -1;
+      if (b.status === 'overdue' && a.status !== 'overdue') return 1;
+      if (a.bin < b.bin) return -1;
+      if (a.bin > b.bin) return 1;
+      return 0;
+    });
+
+    const MAX_WEEK = 150;
+    const MAX_TUESDAY = 150;
+    const capped = weekItems.slice(0, MAX_WEEK);
+
+    const binGroups = {};
+    capped.forEach(item => {
+      const bin = item.bin || 'NO BIN';
+      if (!binGroups[bin]) binGroups[bin] = [];
+      binGroups[bin].push(item);
+    });
+
+    const sortedBins = Object.keys(binGroups).sort();
+
+    let tuesdayItems = [];
+    let thursdayItems = [];
+    let tuesdayCount = 0;
+
+    sortedBins.forEach(bin => {
+      const group = binGroups[bin];
+      if (tuesdayCount + group.length <= MAX_TUESDAY && tuesdayCount < 130) {
+        tuesdayItems.push({ bin, items: group });
+        tuesdayCount += group.length;
+      } else if (tuesdayCount < MAX_TUESDAY) {
+        const spaceLeft = MAX_TUESDAY - tuesdayCount;
+        if (spaceLeft > 0 && group.length <= spaceLeft) {
+          tuesdayItems.push({ bin, items: group });
+          tuesdayCount += group.length;
+        } else {
+          thursdayItems.push({ bin, items: group });
+        }
+      } else {
+        thursdayItems.push({ bin, items: group });
+      }
+    });
+
+    capped.forEach(i => scheduled.add(i.part + '|' + i.bin));
+
+    const tuesdayTotal = tuesdayItems.reduce((s, g) => s + g.items.length, 0);
+    const thursdayTotal = thursdayItems.reduce((s, g) => s + g.items.length, 0);
+
+    weeks.push({
+      weekNum: w + 1,
+      tuesday,
+      thursday,
+      tuesdayItems,
+      thursdayItems,
+      tuesdayCount: tuesdayTotal,
+      thursdayCount: thursdayTotal,
+      totalCount: tuesdayTotal + thursdayTotal
+    });
+  }
+
+  renderScheduleOutput(depotName, weeks, outstanding.length, dueSoon.length);
+}
+
+function renderScheduleOutput(depotName, weeks, overdueCount, dueSoonCount) {
+  const totalScheduled = weeks.reduce((s, w) => s + w.totalCount, 0);
+  const tuesdayOnlyWeeks = weeks.filter(w => w.thursdayCount === 0).length;
+  const thursdayWeeks = weeks.filter(w => w.thursdayCount > 0).length;
+
+  let html = '<div class="stats-row">' +
+    statCard('Depot', depotName, 'blue') +
+    statCard('Total Scheduled', totalScheduled, 'green') +
+    statCard('Overdue (Prioritised)', overdueCount, 'red') +
+    statCard('Weeks Planned', weeks.length, '') +
+    statCard('Thursday Overspill Weeks', thursdayWeeks, 'amber') +
+  '</div>';
+
+  weeks.forEach(week => {
+    html += '<div class="week-card">' +
+      '<div class="week-header">' +
+        '<div class="week-title">Week ' + week.weekNum + ' — w/c ' + formatDate(addDays(week.tuesday, -1)) + '</div>' +
+        '<div class="week-count">' + week.totalCount + ' / 150 items</div>' +
+      '</div>';
+
+    html += '<div class="day-section">' +
+      '<div class="day-label">Tuesday ' + formatDate(week.tuesday) +
+        ' <span class="count-pill">' + week.tuesdayCount + ' items</span></div>';
+
+    week.tuesdayItems.forEach(group => {
+      html += renderBinGroup(group);
+    });
+    html += '</div>';
+
+    if (week.thursdayItems.length > 0) {
+      html += '<div class="day-section">' +
+        '<div class="day-label thursday">Thursday ' + formatDate(week.thursday) +
+          ' (Catch-up) <span class="count-pill">' + week.thursdayCount + ' items</span></div>';
+      week.thursdayItems.forEach(group => {
+        html += renderBinGroup(group);
+      });
+      html += '</div>';
+    }
+
+    html += '</div>';
+  });
+
+  document.getElementById('scheduleOutput').innerHTML = html;
+  window._lastSchedule = { depotName, weeks };
+}
+
+function renderBinGroup(group) {
+  let html = '<div class="bin-group">' +
+    '<div class="bin-group-header">Bin: ' + group.bin + ' (' + group.items.length + ' items)</div>' +
+    '<div class="bin-group-items">';
+
+  group.items.forEach(item => {
+    const statusCls = item.status === 'overdue' ? 'status-overdue' : (item.status === 'due-soon' ? 'status-due-soon' : 'status-ok');
+    html += '<div class="bin-item">' +
+      '<span>' + item.part + ' — ' + truncate(item.partDesc, 40) + '</span>' +
+      '<span class="part-info">' +
+        '<span class="status-badge ' + statusCls + '" style="font-size:0.65rem">' +
+          (item.status === 'overdue' ? 'OVERDUE' : item.status === 'due-soon' ? 'DUE' : 'SCHED') +
+        '</span> ' +
+        'Due: ' + formatDate(item.dueDate) +
+      '</span>' +
+    '</div>';
+  });
+
+  html += '</div></div>';
+  return html;
+}
+
+function truncate(str, n) {
+  return str.length > n ? str.substring(0, n) + '...' : str;
+}
+
+function exportSchedule() {
+  if (!window._lastSchedule) return alert('Generate a schedule first');
+  const { depotName, weeks } = window._lastSchedule;
+
+  let csv = 'Week,Day,Date,Bin,Part,Description,Status,Due Date,Material Group\n';
+  weeks.forEach(week => {
+    const addRows = (items, day, date) => {
+      items.forEach(group => {
+        group.items.forEach(item => {
+          csv += [
+            week.weekNum,
+            day,
+            formatDate(date),
+            '"' + group.bin + '"',
+            '"' + item.part + '"',
+            '"' + item.partDesc + '"',
+            item.status,
+            formatDate(item.dueDate),
+            '"' + item.materialGroup + '"'
+          ].join(',') + '\n';
+        });
+      });
+    };
+    addRows(week.tuesdayItems, 'Tuesday', week.tuesday);
+    if (week.thursdayItems.length > 0) addRows(week.thursdayItems, 'Thursday', week.thursday);
+  });
+
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = depotName.replace(/\s+/g, '_') + '_stocktake_schedule.csv';
+  a.click();
+}
+
+function renderDepotView() {
+  const depotName = document.getElementById('depotViewSelect').value;
+  if (!depotName) {
+    document.getElementById('depotViewContent').innerHTML = '<p style="color:var(--muted)">Select a depot to view details.</p>';
+    return;
+  }
+
+  const items = parsedItems.filter(i => i.depot === depotName);
+  const overdue = items.filter(i => i.status === 'overdue');
+  const dueSoon = items.filter(i => i.status === 'due-soon');
+  const ok = items.filter(i => i.status === 'ok');
+  const totalVal = items.reduce((s, i) => s + i.stockValue, 0);
+  const bins = [...new Set(items.map(i => i.bin || 'NO BIN'))].sort();
+
+  let html = '<div class="stats-row">' +
+    statCard('Total Items', items.length, 'blue') +
+    statCard('Overdue', overdue.length, 'red') +
+    statCard('Due Soon', dueSoon.length, 'amber') +
+    statCard('Up to Date', ok.length, 'green') +
+    statCard('Bin Locations', bins.length, '') +
+    statCard('Stock Value', '£' + totalVal.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2}), 'blue') +
+  '</div>';
+
+  const weeksToClean = Math.ceil(overdue.length / 150);
+  html += '<div class="cycle-info">' +
+    '<strong>Depot Summary:</strong> ' + depotName + ' has <strong>' + overdue.length + '</strong> overdue items across <strong>' + bins.length + '</strong> bin locations. ' +
+    'At 150 items per week, the backlog would take approximately <strong>' + weeksToClean + ' week' + (weeksToClean !== 1 ? 's' : '') + '</strong> to clear. ' +
+    'Items are spread across <strong>' + [...new Set(items.map(i => i.materialGroup))].filter(Boolean).length + '</strong> material groups.' +
+  '</div>';
+
+  html += '<h3 style="margin:15px 0 10px">Items by Bin Location</h3>';
+
+  bins.forEach(bin => {
+    const binItems = items.filter(i => (i.bin || 'NO BIN') === bin);
+    const binOverdue = binItems.filter(i => i.status === 'overdue').length;
+    const binDue = binItems.filter(i => i.status === 'due-soon').length;
+
+    html += '<div class="depot-section">' +
+      '<div class="depot-header" onclick="this.nextElementSibling.classList.toggle(\'hidden\')">' +
+        '<h3>Bin: ' + bin + ' (' + binItems.length + ' items)</h3>' +
+        '<div class="info">' +
+          (binOverdue > 0 ? '<span style="color:var(--red)">Overdue: ' + binOverdue + '</span> ' : '') +
+          (binDue > 0 ? '<span style="color:var(--amber)">Due Soon: ' + binDue + '</span>' : '') +
+        '</div>' +
+      '</div>' +
+      '<div class="depot-body hidden">' +
+        '<table><thead><tr>' +
+          '<th>Part</th><th>Description</th><th>Qty</th><th>Value</th><th>Last Take</th><th>Due</th><th>Status</th><th>Material Group</th>' +
+        '</tr></thead><tbody>';
+
+    binItems.sort((a, b) => b.daysOverdue - a.daysOverdue).forEach(item => {
+      const statusCls = item.status === 'overdue' ? 'status-overdue' : (item.status === 'due-soon' ? 'status-due-soon' : 'status-ok');
+      const statusText = item.status === 'overdue' ? 'OVERDUE' : (item.status === 'due-soon' ? 'DUE SOON' : 'OK');
+      html += '<tr>' +
+        '<td>' + item.part + '</td>' +
+        '<td>' + item.partDesc + '</td>' +
+        '<td>' + item.qty + '</td>' +
+        '<td>£' + item.stockValue.toLocaleString('en-GB', {minimumFractionDigits: 2}) + '</td>' +
+        '<td>' + formatDate(item.lastStockTake) + '</td>' +
+        '<td>' + formatDate(item.dueDate) + '</td>' +
+        '<td><span class="status-badge ' + statusCls + '">' + statusText + '</span></td>' +
+        '<td>' + item.materialGroup + '</td>' +
+      '</tr>';
+    });
+
+    html += '</tbody></table></div></div>';
+  });
+
+  document.getElementById('depotViewContent').innerHTML = html;
+}
+
+document.getElementById('depotViewSelect').addEventListener('change', renderDepotView);
+
+document.getElementById('cyclePeriod').addEventListener('change', () => {
+  processData();
+});
+</script>
+</body>
+</html>
