@@ -399,7 +399,7 @@
       <div class="cycle-info">
         <strong>Scheduling Rules:</strong> Stock takes are scheduled on <strong>Tuesdays</strong>. 
         Each item is due for a count no later than <strong>1 week before</strong> its due date.
-        Items are grouped by <strong>Bin location</strong> for efficient time-in-motion. 
+        Items are grouped by <strong>shelf</strong> (first 4 characters of bin location) for efficient time-in-motion. 
         Maximum <strong>150 items per week</strong>. <strong>Thursdays</strong> are used for catch-up or overspill on busy weeks.
         Outstanding items are prioritised and worked into the schedule first.
         Light weeks automatically pull forward future stock takes to even out the workload.
@@ -882,14 +882,15 @@ function generateSchedule() {
       const futureSlot = weekSlots[f];
       if (futureSlot.items.length <= PULL_FORWARD_THRESHOLD) continue;
 
+      const shelfKeyFn = bin => { const b = (bin || 'NO BIN').toUpperCase(); return b.length >= 4 ? b.substring(0, 4) : b; };
       const sortedByBin = [...futureSlot.items].sort((a, b) => a.bin < b.bin ? -1 : a.bin > b.bin ? 1 : 0);
       const toMove = [];
-      const binsInCurrent = new Set(slot.items.map(i => i.bin || 'NO BIN'));
+      const shelvesInCurrent = new Set(slot.items.map(i => shelfKeyFn(i.bin)));
 
       sortedByBin.forEach(item => {
         if (pulled + toMove.length >= space) return;
-        const bin = item.bin || 'NO BIN';
-        if (binsInCurrent.has(bin) || toMove.some(m => (m.bin || 'NO BIN') === bin)) {
+        const shelf = shelfKeyFn(item.bin);
+        if (shelvesInCurrent.has(shelf) || toMove.some(m => shelfKeyFn(m.bin) === shelf)) {
           toMove.push(item);
         }
       });
@@ -913,55 +914,61 @@ function generateSchedule() {
     }
   }
 
-  // Pass 3: build week cards with bin grouping and Tuesday/Thursday split
+  // Pass 3: build week cards — group by shelf (first 4 chars of bin)
   const activeWeeks = weekSlots.filter(s => s.items.length > 0);
 
-  // First pass: count total bin groups across all weeks for the "X of N" reference
-  let totalBinGroups = 0;
-  const weekBinData = activeWeeks.map(slot => {
-    const binGroups = {};
+  function shelfKey(bin) {
+    const b = (bin || 'NO BIN').toUpperCase();
+    return b.length >= 4 ? b.substring(0, 4) : b;
+  }
+
+  // First pass: count total shelf groups across all weeks
+  let totalShelfGroups = 0;
+  const weekShelfData = activeWeeks.map(slot => {
+    const shelfGroups = {};
     slot.items.forEach(item => {
-      const bin = item.bin || 'NO BIN';
-      if (!binGroups[bin]) binGroups[bin] = [];
-      binGroups[bin].push(item);
+      const shelf = shelfKey(item.bin);
+      if (!shelfGroups[shelf]) shelfGroups[shelf] = [];
+      shelfGroups[shelf].push(item);
     });
-    const binCount = Object.keys(binGroups).length;
-    totalBinGroups += binCount;
-    return { slot, binGroups };
+    totalShelfGroups += Object.keys(shelfGroups).length;
+    return { slot, shelfGroups };
   });
 
-  // Second pass: assign sequential count numbers per bin group
+  // Second pass: assign sequential count numbers per shelf group
   let runningCount = 0;
 
-  weekBinData.forEach(({ slot, binGroups }) => {
+  weekShelfData.forEach(({ slot, shelfGroups }) => {
     const tuesday = slot.tuesday;
     const thursday = getThursdayOfWeek(tuesday);
 
     slot.items.sort((a, b) => {
       if (a.status === 'overdue' && b.status !== 'overdue') return -1;
       if (b.status === 'overdue' && a.status !== 'overdue') return 1;
-      return a.bin < b.bin ? -1 : a.bin > b.bin ? 1 : 0;
+      return (a.bin || '') < (b.bin || '') ? -1 : (a.bin || '') > (b.bin || '') ? 1 : 0;
     });
 
-    const sortedBins = Object.keys(binGroups).sort();
+    const sortedShelves = Object.keys(shelfGroups).sort();
     let tuesdayItems = [];
     let thursdayItems = [];
     let tuesdayCount = 0;
 
-    sortedBins.forEach(bin => {
-      const group = binGroups[bin];
+    sortedShelves.forEach(shelf => {
+      const items = shelfGroups[shelf];
+      const bins = [...new Set(items.map(i => i.bin || 'NO BIN'))].sort();
+      const binLabel = bins.length === 1 ? bins[0] : shelf + 'xx (' + bins.join(', ') + ')';
       runningCount++;
-      const countRef = depotName + ' - ' + formatDate(tuesday) + ' - ' + runningCount + ' of ' + totalBinGroups;
-      const binEntry = { bin, items: group, countNum: runningCount, countRef };
+      const countRef = depotName + ' - ' + formatDate(tuesday) + ' - ' + runningCount + ' of ' + totalShelfGroups;
+      const binEntry = { bin: binLabel, shelf, items, countNum: runningCount, countRef };
 
-      if (tuesdayCount + group.length <= 130) {
+      if (tuesdayCount + items.length <= 130) {
         tuesdayItems.push(binEntry);
-        tuesdayCount += group.length;
+        tuesdayCount += items.length;
       } else if (tuesdayCount < MAX_WEEK) {
         const spaceLeft = MAX_WEEK - tuesdayCount;
-        if (group.length <= spaceLeft) {
+        if (items.length <= spaceLeft) {
           tuesdayItems.push(binEntry);
-          tuesdayCount += group.length;
+          tuesdayCount += items.length;
         } else {
           thursdayItems.push(binEntry);
         }
@@ -982,7 +989,7 @@ function generateSchedule() {
       tuesdayCount: tuesdayTotal,
       thursdayCount: thursdayTotal,
       totalCount: tuesdayTotal + thursdayTotal,
-      totalBinGroups
+      totalBinGroups: totalShelfGroups
     });
   });
 
