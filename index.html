@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Stocktake Schedule Planner</title>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <style>
   :root {
     --bg: #1a1a2e;
@@ -320,9 +321,10 @@
 
 <div class="container">
   <div id="uploadSection" class="upload-zone" onclick="document.getElementById('csvFile').click()">
-    <h2>Drop CSV File Here or Click to Upload</h2>
-    <p>Expected columns: OPCO, OPCODesc, Store, DepotDesc, Part, PartDesc, PartClass, Bin, Qty, UOI, AvgPrice, StockValue, Date of Last Stock Take, StockAcctCode, ACCTNAME, DEPOT, MATERIALGROUPDESC</p>
-    <input type="file" id="csvFile" accept=".csv,.txt">
+    <h2>Drop Excel File Here or Click to Upload</h2>
+    <p>Supports .xlsx, .xls and .csv files</p>
+    <p style="font-size:0.8rem;margin-top:8px">Expected columns: OPCO, OPCODesc, Store, DepotDesc, Part, PartDesc, PartClass, Bin, Qty, UOI, AvgPrice, StockValue, Date of Last Stock Take, StockAcctCode, ACCTNAME, DEPOT, MATERIALGROUPDESC</p>
+    <input type="file" id="csvFile" accept=".xlsx,.xls,.csv,.txt">
   </div>
 
   <div id="mainContent" class="hidden">
@@ -438,12 +440,21 @@ uploadZone.addEventListener('drop', e => {
 });
 
 function readCSV(file) {
+  const ext = file.name.split('.').pop().toLowerCase();
   const reader = new FileReader();
-  reader.onload = e => {
-    const text = e.target.result;
-    parseCSVData(text);
-  };
-  reader.readAsText(file);
+  if (ext === 'xlsx' || ext === 'xls') {
+    reader.onload = e => {
+      const data = new Uint8Array(e.target.result);
+      const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const csv = XLSX.utils.sheet_to_csv(sheet, { dateNF: 'dd/mm/yyyy' });
+      parseCSVData(csv);
+    };
+    reader.readAsArrayBuffer(file);
+  } else {
+    reader.onload = e => parseCSVData(e.target.result);
+    reader.readAsText(file);
+  }
 }
 
 function parseCSVData(text) {
@@ -519,11 +530,19 @@ function parseCSVLine(line) {
 
 function parseDate(str) {
   if (!str) return null;
-  str = str.trim().replace(/^["']|["']$/g, '');
-  // Try DD/MM/YYYY
+  str = String(str).trim().replace(/^["']|["']$/g, '');
+  if (!str) return null;
+  // Excel serial date number
+  const num = parseFloat(str);
+  if (!isNaN(num) && num > 30000 && num < 60000 && str.match(/^\d+\.?\d*$/)) {
+    const epoch = new Date(1899, 11, 30);
+    epoch.setDate(epoch.getDate() + Math.floor(num));
+    return epoch;
+  }
+  // DD/MM/YYYY
   let m = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
   if (m) return new Date(parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]));
-  // Try YYYY-MM-DD
+  // YYYY-MM-DD
   m = str.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
   if (m) return new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]));
   const d = new Date(str);
